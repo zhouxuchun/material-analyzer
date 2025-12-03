@@ -508,4 +508,5 @@ if __name__ == '__main__':
     print("系统正在启动...")
     print("访问地址: http://127.0.0.1:5000")
     print("=" * 60)
-    app.run(debug=True, host='0.0.0.0', port=5000)  # 关键是把 host 改为 '0.0.0.0'
+
+    app.run(debug=True, host='0.0.0.0', port=5000)
