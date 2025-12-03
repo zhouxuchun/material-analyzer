@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>材料力学性能分析系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            text-align: center;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 25px;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+        }
+        
+        .panel h2 {
+            color: #3498db;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+            font-weight: 600;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-weight: 500;
+            font-size: 1.1em;
+        }
+        
+        select, input[type="file"], button {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        select:focus, input[type="file"]:focus {
+            border-color: #3498db;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+        
+        button {
+            background: linear-gradient(45deg, #3498db, #2c3e50);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin-top: 10px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 7px 15px rgba(52, 152, 219, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(-1px);
+        }
+        
+        button.secondary {
+            background: linear-gradient(45deg, #2ecc71, #27ae60);
+            margin-top: 15px;
+        }
+        
+        button.danger {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+        }
+        
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 25px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+            text-align: center;
+        }
+        
+        .chart-container img {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .results-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 25px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+        }
+        
+        .result-item {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .result-item strong {
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+        
+        .result-item span {
+            color: #e74c3c;
+            font-weight: 600;
+            font-size: 1.2em;
+            text-align: right;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .status-bar {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            color: #7f8c8d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .material-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            background: linear-gradient(45deg, #3498db, #2c3e50);
+            color: white;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            padding: 20px;
+            margin-top: 30px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🧪 材料力学性能分析系统</h1>
+            <p>上传应力-应变数据文件，系统将自动计算弹性模量、屈服强度、抗拉强度等关键力学性能参数</p>
+        </div>
+        
+        <!-- 状态栏 -->
+        <div class="status-bar" id="statusBar">
+            <div>
+                <span id="dataStatus">📊 未加载数据</span>
+                <span id="materialBadge" class="material-badge" style="display: none;">材料类型</span>
+            </div>
+            <div>
+                <span id="dataPoints">数据点: 0</span>
+            </div>
+        </div>
+        
+        <!-- 主内容区域 -->
+        <div class="main-content">
+            <!-- 左侧：数据输入面板 -->
+            <div class="panel">
+                <h2>📁 数据输入</h2>
+                
+                <div class="form-group">
+                    <label>选择材料类型</label>
+                    <select id="materialType">
+                        <option value="钢">钢</option>
+                        <option value="铝">铝</option>
+                        <option value="铜">铜</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>上传CSV数据文件</label>
+                    <input type="file" id="csvFile" accept=".csv,.txt,.dat">
+                    <small style="color: #7f8c8d; display: block; margin-top: 8px;">
+                        支持格式：CSV、TXT、DAT。文件应包含应变和应力两列数据。
+                    </small>
+                </div>
+                
+                <button onclick="uploadCSV()">📤 上传并解析数据</button>
+                <button class="secondary" onclick="loadExampleData()">📊 加载示例数据</button>
+                <button class="danger" onclick="clearData()">🗑️ 清除数据</button>
+            </div>
+            
+            <!-- 右侧：分析控制面板 -->
+            <div class="panel">
+                <h2>⚙️ 分析控制</h2>
+                
+                <div class="alert alert-info">
+                    <strong>💡 使用说明：</strong>
+                    1. 首先上传数据或加载示例<br>
+                    2. 点击"分析材料性能"进行计算<br>
+                    3. 查看分析结果并生成报告
+                </div>
+                
+                <div class="btn-group">
+                    <button onclick="analyzeMaterial()">🔬 分析材料性能</button>
+                    <button onclick="generateReport()">📄 生成分析报告</button>
+                </div>
+                
+                <button onclick="downloadReport()">💾 下载报告文件</button>
+            </div>
+        </div>
+        
+        <!-- 图表显示区域 -->
+        <div class="chart-container" id="chartContainer" style="display: none;">
+            <h2>📈 应力-应变曲线</h2>
+            <div id="chartImage"></div>
+        </div>
+        
+        <!-- 分析结果区域 -->
+        <div class="results-panel" id="resultsPanel" style="display: none;">
+            <h2>📊 材料性能分析结果</h2>
+            <div id="resultsContent"></div>
+        </div>
+        
+        <!-- 报告区域 -->
+        <div class="results-panel" id="reportPanel" style="display: none;">
+            <h2>📋 分析报告</h2>
+            <pre id="reportContent" style="background: #f8f9fa; padding: 20px; border-radius: 10px; white-space: pre-wrap; font-family: monospace;"></pre>
+        </div>
+        
+        <!-- 加载动画 -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>处理中，请稍候...</p>
+        </div>
+        
+        <!-- 消息提示 -->
+        <div id="messageContainer"></div>
+    </div>
+    
+    <div class="footer">
+        <p>材料力学性能分析系统 &copy; 2024 | 基于Flask构建</p>
+    </div>
+
+    <script>
+        // 显示消息
+        function showMessage(message, type = 'info') {
+            const container = document.getElementById('messageContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = message;
+            
+            container.appendChild(alert);
+            
+            // 3秒后自动移除
+            setTimeout(() => {
+                alert.remove();
+            }, 3000);
+        }
+        
+        // 显示/隐藏加载动画
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+        
+        // 更新状态栏
+        function updateStatusBar(hasData, points = 0, material = '') {
+            const statusBar = document.getElementById('statusBar');
+            const dataStatus = document.getElementById('dataStatus');
+            const materialBadge = document.getElementById('materialBadge');
+            const dataPoints = document.getElementById('dataPoints');
+            
+            if (hasData) {
+                dataStatus.innerHTML = `📊 已加载数据 (${points} 个点)`;
+                materialBadge.textContent = material;
+                materialBadge.style.display = 'inline-block';
+                dataPoints.textContent = `数据点: ${points}`;
+            } else {
+                dataStatus.textContent = '📊 未加载数据';
+                materialBadge.style.display = 'none';
+                dataPoints.textContent = '数据点: 0';
+            }
+        }
+        
+        // 上传CSV文件
+        async function uploadCSV() {
+            const fileInput = document.getElementById('csvFile');
+            const materialType = document.getElementById('materialType').value;
+            
+            if (!fileInput.files[0]) {
+                showMessage('请先选择文件！', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('material_type', materialType);
+            
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/upload_csv', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    
+                    // 显示图表
+                    document.getElementById('chartContainer').style.display = 'block';
+                    document.getElementById('chartImage').innerHTML = `<img src="data:image/png;base64,${result.chart}" alt="应力-应变曲线">`;
+                    
+                    // 更新状态栏
+                    updateStatusBar(true, result.data_points, materialType);
+                    
+                    // 隐藏结果面板（因为新数据需要重新分析）
+                    document.getElementById('resultsPanel').style.display = 'none';
+                    document.getElementById('reportPanel').style.display = 'none';
+                } else {
+                    showMessage(result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('上传失败：' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 加载示例数据
+        async function loadExampleData() {
+            const materialType = document.getElementById('materialType').value;
+            
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/load_example', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ material_type: materialType })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    
+                    // 显示图表
+                    document.getElementById('chartContainer').style.display = 'block';
+                    document.getElementById('chartImage').innerHTML = `<img src="data:image/png;base64,${result.chart}" alt="应力-应变曲线">`;
+                    
+                    // 更新状态栏
+                    updateStatusBar(true, result.data_points, materialType);
+                    
+                    // 隐藏结果面板
+                    document.getElementById('resultsPanel').style.display = 'none';
+                    document.getElementById('reportPanel').style.display = 'none';
+                } else {
+                    showMessage(result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('加载失败：' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 分析材料性能
+        async function analyzeMaterial() {
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    
+                    // 更新图表
+                    document.getElementById('chartContainer').style.display = 'block';
+                    document.getElementById('chartImage').innerHTML = `<img src="data:image/png;base64,${result.chart}" alt="应力-应变曲线">`;
+                    
+                    // 显示结果
+                    const resultsContent = document.getElementById('resultsContent');
+                    resultsContent.innerHTML = '';
+                    
+                    for (const [key, value] of Object.entries(result.results)) {
+                        const div = document.createElement('div');
+                        div.className = 'result-item';
+                        div.innerHTML = `
+                            <strong>${key}</strong>
+                            <span>${value.value.toFixed(2)} ${value.unit}</span>
+                        `;
+                        resultsContent.appendChild(div);
+                    }
+                    
+                    document.getElementById('resultsPanel').style.display = 'block';
+                } else {
+                    showMessage(result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('分析失败：' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 生成分析报告
+        async function generateReport() {
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/generate_report', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    
+                    // 显示报告
+                    document.getElementById('reportContent').textContent = result.report;
+                    document.getElementById('reportPanel').style.display = 'block';
+                } else {
+                    showMessage(result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('生成报告失败：' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 下载报告
+        async function downloadReport() {
+            window.open('/download_report', '_blank');
+        }
+        
+        // 清除数据
+        async function clearData() {
+            if (!confirm('确定要清除所有数据吗？')) return;
+            
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/clear_data', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(result.message, 'success');
+                    
+                    // 重置界面
+                    document.getElementById('chartContainer').style.display = 'none';
+                    document.getElementById('resultsPanel').style.display = 'none';
+                    document.getElementById('reportPanel').style.display = 'none';
+                    document.getElementById('csvFile').value = '';
+                    
+                    // 更新状态栏
+                    updateStatusBar(false);
+                } else {
+                    showMessage(result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('清除失败：' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 页面加载时获取数据状态
+        async function loadDataStatus() {
+            try {
+                const response = await fetch('/data_summary');
+                const result = await response.json();
+                
+                if (result.success && result.has_data) {
+                    updateStatusBar(true, result.data_points, result.material_type);
+                    
+                    // 如果有数据，显示图表区域
+                    document.getElementById('chartContainer').style.display = 'block';
+                    document.getElementById('chartImage').innerHTML = '<p>📊 数据已加载，请点击"分析材料性能"查看图表</p>';
+                    
+                    // 设置材料类型选择
+                    document.getElementById('materialType').value = result.material_type;
+                }
+            } catch (error) {
+                console.log('加载状态失败:', error);
+            }
+        }
+        
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDataStatus();
+        });
+    </script>
+</body>
+</html>
