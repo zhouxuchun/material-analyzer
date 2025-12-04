@@ -1,485 +1,185 @@
-# app.py - 材料力学性能分析系统 (Vercel部署优化版)
-from flask import Flask, render_template, request, jsonify, send_file
+# app.py
+import os
 import numpy as np
-# 移除 matplotlib 和 pandas 导入以减小体积
-# import matplotlib
-# matplotlib.use('Agg')
-# import matplotlib.pyplot as plt
-# import pandas as pd
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
+from flask import Flask, request, jsonify, render_template_string
 import io
 import base64
-import json
-import os
-from datetime import datetime
-import re
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.secret_key = 'your-secret-key'
 
-# 移除 matplotlib 中文设置
-# plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
-# plt.rcParams['axes.unicode_minus'] = False
+# 中文支持
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
 
-# 确保上传文件夹存在
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能材料力学性能分析器</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 20px; background: #f5f7fa; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #2c3e50; }
+        .upload-box { border: 2px dashed #3498db; padding: 20px; text-align: center; margin: 20px 0; background: #f8fcff; }
+        input[type="file"] { margin: 10px 0; }
+        button { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #2980b9; }
+        .result { margin-top: 20px; }
+        pre { background: #f1f1f1; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }
+        img { max-width: 100%; height: auto; margin: 20px 0; border: 1px solid #eee; border-radius: 5px; }
+        .error { color: red; background: #ffeaea; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 智能材料力学性能分析器</h1>
+        <p style="text-align:center; color:#555;">上传 CSV 文件（需包含 Strain 和 Stress 两列）</p>
+        
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
 
-# 全局变量存储当前数据
-current_data = {
-    'strain': None,
-    'stress': None,
-    'material_type': '钢',
-    'results': None,
-    'filename': None
-}
+        <form method="POST" enctype="multipart/form-data">
+            <div class="upload-box">
+                <input type="file" name="file" accept=".csv" required>
+                <br><br>
+                <button type="submit">开始分析</button>
+            </div>
+        </form>
 
-def calculate_material_properties(strain, stress):
-    """计算材料性能参数"""
-    try:
-        # 确保数据有效
-        if strain is None or stress is None or len(strain) < 2:
-            raise ValueError("数据不足")
-        
-        print(f"开始计算材料性能，数据点: {len(strain)}")
-        
-        # 平滑数据
-        if len(stress) > 10:
-            window_size = min(11, len(stress))
-            if window_size % 2 == 0:
-                window_size -= 1
-            if window_size >= 3:
-                stress_smooth = savgol_filter(stress, window_size, 3)
-            else:
-                stress_smooth = stress
-        else:
-            stress_smooth = stress
-        
-        # 1. 弹性模量
-        elastic_region = strain <= 0.002
-        if np.sum(elastic_region) > 5:
-            elastic_strain = strain[elastic_region][:min(10, len(strain[elastic_region]))]
-            elastic_stress = stress_smooth[elastic_region][:min(10, len(stress_smooth[elastic_region]))]
-            slope = np.polyfit(elastic_strain, elastic_stress, 1)[0]
-            youngs_modulus = slope / 1e9  # 转换为GPa
-        else:
-            youngs_modulus = 200
-        
-        # 2. 屈服强度（0.2%偏移法）
+        {% if plot_url %}
+            <div class="result">
+                <h2>📊 分析结果</h2>
+                <img src="{{ plot_url }}" alt="应力-应变曲线">
+                <pre>{{ results_text }}</pre>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+'''
+
+class MaterialAnalyzer:
+    def __init__(self, stress, strain):
+        self.stress = stress
+        self.strain = strain
+        self.results = {}
+
+    def calculate_properties(self):
         try:
-            offset_line = youngs_modulus * 1e9 * (strain - 0.002)
+            stress_smooth = self.stress
+            if len(self.stress) > 10:
+                window_size = min(11, len(self.stress))
+                if window_size % 2 == 0:
+                    window_size -= 1
+                stress_smooth = savgol_filter(self.stress, window_size, 3)
+
+            elastic_region = self.strain <= 0.002
+            if np.sum(elastic_region) > 5:
+                slope = np.polyfit(self.strain[elastic_region][:10], stress_smooth[elastic_region][:10], 1)[0]
+                youngs_modulus = slope / 1e9
+            else:
+                youngs_modulus = 200
+
+            offset_line = youngs_modulus * 1e9 * (self.strain - 0.002)
             diff = np.abs(stress_smooth - offset_line)
-            valid_indices = strain > 0.002
-            
+            valid_indices = self.strain > 0.002
             if np.any(valid_indices):
-                yield_idx = np.argmin(diff[valid_indices])
-                yield_strength = stress_smooth[valid_indices][yield_idx]
+                yield_idx = np.argmin(diff[valid_indices]) + np.argmax(valid_indices)
+                yield_strength = stress_smooth[yield_idx]
             else:
                 yield_strength = np.max(stress_smooth) * 0.8
-        except:
-            yield_strength = np.max(stress_smooth) * 0.8
-        
-        # 3. 抗拉强度
-        tensile_strength = np.max(stress_smooth)
-        
-        # 4. 断裂应变
-        max_idx = np.argmax(stress_smooth)
-        fracture_strain = strain[max_idx]
-        
-        # 5. 韧性
-        toughness = np.trapz(stress_smooth, strain) / 1e6  # 转换为MJ/m³
-        
-        return {
-            '弹性模量': {'value': max(youngs_modulus, 0), 'unit': 'GPa'},
-            '屈服强度': {'value': max(yield_strength, 0), 'unit': 'MPa'},
-            '抗拉强度': {'value': max(tensile_strength, 0), 'unit': 'MPa'},
-            '断裂应变': {'value': max(fracture_strain, 0), 'unit': ''},
-            '韧性': {'value': max(toughness, 0), 'unit': 'MJ/m³'}
-        }
-    except Exception as e:
-        print(f"计算错误: {e}")
-        return {
-            '弹性模量': {'value': 200, 'unit': 'GPa'},
-            '屈服强度': {'value': 400, 'unit': 'MPa'},
-            '抗拉强度': {'value': 500, 'unit': 'MPa'},
-            '断裂应变': {'value': 0.15, 'unit': ''},
-            '韧性': {'value': 80, 'unit': 'MJ/m³'}
-        }
 
-def generate_stress_strain_chart(strain, stress, results=None, material_type="钢"):
-    """【简化版】返回图表数据，由前端JavaScript绘制"""
-    try:
-        print(f"生成图表数据，数据点: {len(strain)}")
-        
-        # 准备返回给前端的数据，让前端用Chart.js等库绘图
-        chart_data = {
-            'labels': strain.tolist() if hasattr(strain, 'tolist') else list(strain),
-            'datasets': [{
-                'label': '应力 (MPa)',
-                'data': stress.tolist() if hasattr(stress, 'tolist') else list(stress),
-                'borderColor': 'rgb(75, 192, 192)',
-                'tension': 0.4,
-                'fill': False
-            }]
-        }
-        
-        # 标记关键点
-        if results and len(strain) > 1:
+            tensile_strength = np.max(stress_smooth)
+            fracture_strain = self.strain[np.argmax(stress_smooth)]
+            toughness = np.trapz(stress_smooth, self.strain)
+
+            self.results = {
+                '弹性模量 (GPa)': max(youngs_modulus, 0),
+                '屈服强度 (MPa)': max(yield_strength, 0),
+                '抗拉强度 (MPa)': max(tensile_strength, 0),
+                '断裂应变': max(fracture_strain, 0),
+                '韧性 (MJ/m³)': max(toughness / 1000, 0)
+            }
+            return True
+        except Exception as e:
+            print(f"计算错误: {e}")
+            return False
+
+    def plot_to_base64(self):
+        fig, ax = plt.subplots(figsize=(9, 5))
+        ax.plot(self.strain, self.stress, 'b-', alpha=0.7, label='实验数据')
+        if self.results:
             try:
-                # 屈服点
-                yield_strength = results['屈服强度']['value']
-                yield_idx = np.argmin(np.abs(stress - yield_strength))
-                if yield_idx < len(strain):
-                    chart_data['yield_point'] = {
-                        'x': float(strain[yield_idx]),
-                        'y': float(stress[yield_idx])
-                    }
-                
-                # 最大应力点
-                max_idx = np.argmax(stress)
-                chart_data['max_point'] = {
-                    'x': float(strain[max_idx]),
-                    'y': float(stress[max_idx])
-                }
-            except Exception as e:
-                print(f"标记关键点时出错: {e}")
-        
-        # 由于原接口需要返回base64图片，我们返回一个极小的透明占位图base64
-        # 这是一个1x1像素的透明PNG图片的base64编码
-        placeholder_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-        
-        # 同时返回图表数据（通过其他方式传递给前端，例如存储在全局变量或修改接口）
-        # 为了最小化改动，我们将chart_data以JSON字符串形式编码到base64中返回
-        # 但注意这会破坏现有前端。作为过渡，我们先返回占位图，后续再优化前端。
-        return placeholder_base64
-        
-    except Exception as e:
-        print(f"生成图表数据错误: {e}")
-        # 返回一个同样有效的1x1透明像素
-        return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                yield_idx = np.argmin(np.abs(self.stress - self.results['屈服强度 (MPa)']))
+                ax.plot(self.strain[yield_idx], self.stress[yield_idx], 'ro', label='屈服点')
+                max_idx = np.argmax(self.stress)
+                ax.plot(self.strain[max_idx], self.stress[max_idx], 'go', label='抗拉强度')
+            except:
+                pass
+        ax.set_xlabel('应变')
+        ax.set_ylabel('应力 (MPa)')
+        ax.set_title('材料应力-应变曲线')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
 
-@app.route('/')
-def home():
-    return render_template('index.html')
+        if self.results:
+            textstr = '\n'.join([f'{k}: {v:.2f}' for k, v in self.results.items()])
+            ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=9,
+                    verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-@app.route('/upload_csv', methods=['POST'])
-def upload_csv():
-    """上传CSV文件"""
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        return f"data:image/png;base64,{img_base64}"
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/', methods=['POST'])
+def analyze():
     try:
         if 'file' not in request.files:
-            return jsonify({'success': False, 'message': '没有选择文件'})
+            return render_template_string(HTML_TEMPLATE, error="未选择文件")
         
         file = request.files['file']
-        material_type = request.form.get('material_type', '钢')
-        
-        if file.filename == '':
-            return jsonify({'success': False, 'message': '没有选择文件'})
-        
-        # 读取文件内容
-        content = file.read().decode('utf-8', errors='ignore')
-        lines = content.strip().split('\n')
-        
-        strain_list = []
-        stress_list = []
-        
-        print(f"解析文件: {file.filename}")
-        
-        # 手动解析数据
-        for line in lines:
-            line = line.strip()
-            
-            # 跳过空行和注释
-            if not line or line.startswith('#') or line.startswith('//'):
-                continue
-            
-            # 提取所有数字
-            numbers = re.findall(r'[-+]?\d*\.?\d+', line)
-            
-            if len(numbers) >= 2:
-                # 前两个数字作为应变和应力
-                try:
-                    strain_list.append(float(numbers[0]))
-                    stress_list.append(float(numbers[1]))
-                except:
-                    continue
-            elif len(numbers) == 1:
-                # 只有一个数字，作为应变，生成模拟应力
-                try:
-                    strain_list.append(float(numbers[0]))
-                    stress_list.append(float(numbers[0]) * 200000)
-                except:
-                    continue
-        
-        # 如果没有数据，尝试生成示例数据
-        if not strain_list:
-            strain_list = list(np.linspace(0, 0.15, 100))
-            stress_list = list(200000 * np.array(strain_list))
-        
-        # 转换为numpy数组
-        strain = np.array(strain_list)
-        stress = np.array(stress_list)
-        
-        print(f"解析成功: {len(strain)} 个数据点")
-        
-        # 更新全局数据
-        current_data['strain'] = strain
-        current_data['stress'] = stress
-        current_data['material_type'] = material_type
-        current_data['filename'] = file.filename
-        current_data['results'] = None
-        
-        # 生成预览图表（简化版）
-        chart_base64 = generate_stress_strain_chart(strain, stress, material_type=material_type)
-        
-        return jsonify({
-            'success': True,
-            'message': f'文件"{file.filename}"上传成功',
-            'data_points': len(strain),
-            'strain_range': f'{strain[0]:.4f} ~ {strain[-1]:.4f}',
-            'stress_range': f'{stress[0]:.1f} ~ {stress[-1]:.1f} MPa',
-            'chart': chart_base64,  # 现在这是一个占位图
-            'filename': file.filename,
-            'chart_data_available': False  # 告诉前端图表数据暂不可用
-        })
-        
-    except Exception as e:
-        print(f"文件处理错误: {str(e)}")
-        return jsonify({'success': False, 'message': f'文件处理失败: {str(e)}'})
+        if not file.filename.endswith('.csv'):
+            return render_template_string(HTML_TEMPLATE, error="请上传 .csv 文件")
 
-@app.route('/load_example', methods=['POST'])
-def load_example():
-    """加载示例数据"""
-    try:
-        data = request.get_json()
-        material_type = data.get('material_type', '钢') if data else '钢'
-        
-        print(f"加载示例数据，材料类型: {material_type}")
-        
-        # 生成示例数据
-        strain = np.linspace(0, 0.15, 300)
-        
-        if material_type == "钢":
-            elastic_strain = strain[strain <= 0.002]
-            elastic_stress = 200000 * elastic_strain
-            plastic_strain = strain[strain > 0.002]
-            plastic_stress = 400 + 800 * (plastic_strain - 0.002)**0.3
-        elif material_type == "铝":
-            elastic_strain = strain[strain <= 0.0015]
-            elastic_stress = 70000 * elastic_strain
-            plastic_strain = strain[strain > 0.0015]
-            plastic_stress = 250 + 400 * (plastic_strain - 0.0015)**0.2
-        elif material_type == "铜":
-            elastic_strain = strain[strain <= 0.0018]
-            elastic_stress = 110000 * elastic_strain
-            plastic_strain = strain[strain > 0.0018]
-            plastic_stress = 150 + 300 * (plastic_strain - 0.0018)**0.25
-        else:
-            elastic_strain = strain[strain <= 0.002]
-            elastic_stress = 200000 * elastic_strain
-            plastic_strain = strain[strain > 0.002]
-            plastic_stress = 400 + 800 * (plastic_strain - 0.002)**0.3
-        
-        stress = np.concatenate([elastic_stress, plastic_stress])
-        
-        # 更新全局数据
-        current_data['strain'] = strain
-        current_data['stress'] = stress
-        current_data['material_type'] = material_type
-        current_data['filename'] = f'{material_type}_示例数据'
-        current_data['results'] = None
-        
-        # 生成预览图表（简化版）
-        chart_base64 = generate_stress_strain_chart(strain, stress, material_type=material_type)
-        
-        return jsonify({
-            'success': True,
-            'message': f'{material_type}材料示例数据加载成功',
-            'data_points': len(strain),
-            'strain_range': f'{strain[0]:.4f} ~ {strain[-1]:.4f}',
-            'stress_range': f'{stress[0]:.1f} ~ {stress[-1]:.1f} MPa',
-            'chart': chart_base64,  # 现在这是一个占位图
-            'material_type': material_type,
-            'chart_data_available': False  # 告诉前端图表数据暂不可用
-        })
-        
-    except Exception as e:
-        print(f"加载示例数据错误: {str(e)}")
-        return jsonify({'success': False, 'message': f'加载失败: {str(e)}'})
+        df = pd.read_csv(file)
+        if len(df.columns) < 2:
+            return render_template_string(HTML_TEMPLATE, error="CSV 至少需要两列数据")
 
-@app.route('/analyze', methods=['POST'])
-def analyze():
-    """分析材料性能"""
-    try:
-        if current_data['strain'] is None:
-            return jsonify({'success': False, 'message': '请先加载数据'})
-        
-        strain = current_data['strain']
-        stress = current_data['stress']
-        material_type = current_data['material_type']
-        
-        print(f"分析材料性能，材料类型: {material_type}")
-        
-        # 计算材料性能
-        results = calculate_material_properties(strain, stress)
-        current_data['results'] = results
-        
-        # 生成图表（简化版）
-        chart_base64 = generate_stress_strain_chart(strain, stress, results, material_type)
-        
-        return jsonify({
-            'success': True,
-            'message': '材料性能分析完成',
-            'results': results,
-            'chart': chart_base64,  # 现在这是一个占位图
-            'material_type': material_type,
-            'chart_data_available': False  # 告诉前端图表数据暂不可用
-        })
-        
-    except Exception as e:
-        print(f"分析错误: {str(e)}")
-        return jsonify({'success': False, 'message': f'分析失败: {str(e)}'})
+        df.columns = ['Strain', 'Stress'] + list(df.columns[2:])
+        strain = df['Strain'].astype(float).values
+        stress = df['Stress'].astype(float).values
 
-@app.route('/generate_report', methods=['POST'])
-def generate_report():
-    """生成分析报告"""
-    try:
-        if current_data['results'] is None:
-            return jsonify({'success': False, 'message': '请先分析材料性能'})
-        
-        # 生成报告文本
-        report = "=" * 60 + "\n"
-        report += "         材料力学性能分析报告\n"
-        report += "=" * 60 + "\n\n"
-        report += f"材料类型: {current_data['material_type']}\n"
-        if current_data['filename']:
-            report += f"数据文件: {current_data['filename']}\n"
-        report += f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        report += f"数据点数: {len(current_data['strain'])}\n"
-        report += "-" * 60 + "\n\n"
-        
-        report += "力学性能参数:\n"
-        report += "-" * 40 + "\n"
-        for key, val in current_data['results'].items():
-            if val['unit']:
-                report += f"{key}: {val['value']:.2f} {val['unit']}\n"
-            else:
-                report += f"{key}: {val['value']:.4f}\n"
-        
-        report += "\n" + "=" * 60 + "\n"
-        
-        return jsonify({
-            'success': True,
-            'message': '分析报告生成完成',
-            'report': report,
-            'chart': current_data.get('chart', '')
-        })
-        
-    except Exception as e:
-        print(f"生成报告错误: {str(e)}")
-        return jsonify({'success': False, 'message': f'生成报告失败: {str(e)}'})
+        analyzer = MaterialAnalyzer(stress=stress, strain=strain)
+        success = analyzer.calculate_properties()
+        if not success:
+            return render_template_string(HTML_TEMPLATE, error="数据分析失败，请检查数据格式")
 
-@app.route('/download_report')
-def download_report():
-    """下载分析报告"""
-    try:
-        if current_data['results'] is None:
-            return jsonify({'success': False, 'message': '请先分析材料性能'})
-        
-        # 生成报告文本
-        report = "=" * 60 + "\n"
-        report += "         材料力学性能分析报告\n"
-        report += "=" * 60 + "\n\n"
-        report += f"材料类型: {current_data['material_type']}\n"
-        if current_data['filename']:
-            report += f"数据文件: {current_data['filename']}\n"
-        report += f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        report += f"数据点数: {len(current_data['strain'])}\n"
-        report += "-" * 60 + "\n\n"
-        
-        report += "力学性能参数:\n"
-        report += "-" * 40 + "\n"
-        for key, val in current_data['results'].items():
-            if val['unit']:
-                report += f"{key}: {val['value']:.2f} {val['unit']}\n"
-            else:
-                report += f"{key}: {val['value']:.4f}\n"
-        
-        report += "\n" + "=" * 60 + "\n"
-        
-        # 创建文件响应
-        response = io.BytesIO()
-        response.write(report.encode('utf-8'))
-        response.seek(0)
-        
-        filename = f"材料分析报告_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        return send_file(
-            response,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='text/plain'
-        )
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'下载失败: {str(e)}'})
+        plot_url = analyzer.plot_to_base64()
+        results_text = "=== 材料力学性能分析报告 ===\n\n"
+        for k, v in analyzer.results.items():
+            results_text += f"{k}: {v:.2f}\n"
 
-@app.route('/data_summary', methods=['GET'])
-def data_summary():
-    """获取数据摘要"""
-    try:
-        if current_data['strain'] is None:
-            return jsonify({
-                'success': False,
-                'has_data': False,
-                'message': '没有加载数据'
-            })
-        
-        strain = current_data['strain']
-        stress = current_data['stress']
-        
-        return jsonify({
-            'success': True,
-            'has_data': True,
-            'data_points': len(strain),
-            'strain_min': float(strain[0]),
-            'strain_max': float(strain[-1]),
-            'stress_min': float(stress[0]),
-            'stress_max': float(stress[-1]),
-            'material_type': current_data['material_type'],
-            'filename': current_data['filename'],
-            'has_results': current_data['results'] is not None
-        })
-        
-    except Exception as e:
-        print(f"获取数据摘要错误: {str(e)}")
-        return jsonify({'success': False, 'message': f'获取失败: {str(e)}'})
+        return render_template_string(HTML_TEMPLATE, plot_url=plot_url, results_text=results_text)
 
-@app.route('/clear_data', methods=['POST'])
-def clear_data():
-    """清除数据"""
-    try:
-        current_data['strain'] = None
-        current_data['stress'] = None
-        current_data['results'] = None
-        current_data['filename'] = None
-        
-        return jsonify({
-            'success': True,
-            'message': '数据已清除'
-        })
-        
     except Exception as e:
-        print(f"清除数据错误: {str(e)}")
-        return jsonify({'success': False, 'message': f'清除失败: {str(e)}'})
+        return render_template_string(HTML_TEMPLATE, error=f"处理出错: {str(e)}")
 
+# Vercel 需要这个入口
 if __name__ == '__main__':
-    print("=" * 60)
-    print("材料力学性能分析系统 (Vercel部署优化版)")
-    print("已移除matplotlib和pandas以减小体积")
-    print("=" * 60)
-    print("系统正在启动...")
-    print("访问地址: http://127.0.0.1:5000")
-    print("=" * 60)
-
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run()
