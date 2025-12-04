@@ -1,10 +1,11 @@
-# app.py - 材料力学性能分析系统 (修复版)
+# app.py - 材料力学性能分析系统 (Vercel部署优化版)
 from flask import Flask, render_template, request, jsonify, send_file
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import pandas as pd
+# 移除 matplotlib 和 pandas 导入以减小体积
+# import matplotlib
+# matplotlib.use('Agg')
+# import matplotlib.pyplot as plt
+# import pandas as pd
 from scipy.signal import savgol_filter
 import io
 import base64
@@ -17,9 +18,9 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.secret_key = 'your-secret-key'
 
-# 设置matplotlib中文显示
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
-plt.rcParams['axes.unicode_minus'] = False
+# 移除 matplotlib 中文设置
+# plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'SimSun']
+# plt.rcParams['axes.unicode_minus'] = False
 
 # 确保上传文件夹存在
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
@@ -107,15 +108,21 @@ def calculate_material_properties(strain, stress):
         }
 
 def generate_stress_strain_chart(strain, stress, results=None, material_type="钢"):
-    """生成应力-应变曲线图"""
+    """【简化版】返回图表数据，由前端JavaScript绘制"""
     try:
-        plt.figure(figsize=(12, 8))
+        print(f"生成图表数据，数据点: {len(strain)}")
         
-        # 绘制原始曲线
-        if len(strain) > 1:
-            plt.plot(strain, stress, 'b-', alpha=0.7, linewidth=2, label='实验数据')
-        else:
-            plt.plot(strain[0], stress[0], 'bo', markersize=10, label='实验数据')
+        # 准备返回给前端的数据，让前端用Chart.js等库绘图
+        chart_data = {
+            'labels': strain.tolist() if hasattr(strain, 'tolist') else list(strain),
+            'datasets': [{
+                'label': '应力 (MPa)',
+                'data': stress.tolist() if hasattr(stress, 'tolist') else list(stress),
+                'borderColor': 'rgb(75, 192, 192)',
+                'tension': 0.4,
+                'fill': False
+            }]
+        }
         
         # 标记关键点
         if results and len(strain) > 1:
@@ -123,72 +130,34 @@ def generate_stress_strain_chart(strain, stress, results=None, material_type="�
                 # 屈服点
                 yield_strength = results['屈服强度']['value']
                 yield_idx = np.argmin(np.abs(stress - yield_strength))
-                
                 if yield_idx < len(strain):
-                    plt.plot(strain[yield_idx], stress[yield_idx], 'ro', 
-                            markersize=10, label='屈服点', zorder=5)
+                    chart_data['yield_point'] = {
+                        'x': float(strain[yield_idx]),
+                        'y': float(stress[yield_idx])
+                    }
                 
                 # 最大应力点
                 max_idx = np.argmax(stress)
-                plt.plot(strain[max_idx], stress[max_idx], 'go', 
-                        markersize=10, label='抗拉强度', zorder=5)
-            except:
-                pass
+                chart_data['max_point'] = {
+                    'x': float(strain[max_idx]),
+                    'y': float(stress[max_idx])
+                }
+            except Exception as e:
+                print(f"标记关键点时出错: {e}")
         
-        plt.xlabel('应变', fontsize=14, fontweight='bold')
-        plt.ylabel('应力 (MPa)', fontsize=14, fontweight='bold')
-        plt.title(f'{material_type}材料应力-应变曲线', fontsize=16, fontweight='bold')
-        plt.grid(True, alpha=0.3, linestyle='--')
+        # 由于原接口需要返回base64图片，我们返回一个极小的透明占位图base64
+        # 这是一个1x1像素的透明PNG图片的base64编码
+        placeholder_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
         
-        if len(strain) > 1:
-            plt.xlim(0, strain[-1] * 1.05)
-            plt.ylim(0, max(stress) * 1.05)
-        
-        plt.legend(loc='best')
-        
-        # 添加文本说明
-        if results:
-            textstr = f"材料类型: {material_type}\n"
-            textstr += f"数据点数: {len(strain)}\n\n"
-            
-            main_params = ['弹性模量', '屈服强度', '抗拉强度', '断裂应变']
-            for key in main_params:
-                if key in results:
-                    val = results[key]
-                    if val['unit']:
-                        textstr += f"{key}: {val['value']:.2f} {val['unit']}\n"
-                    else:
-                        textstr += f"{key}: {val['value']:.4f}\n"
-            
-            plt.text(0.02, 0.98, textstr, transform=plt.gca().transAxes, fontsize=10,
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9))
-        
-        # 将图表转换为base64字符串
-        buf = io.BytesIO()
-        plt.tight_layout()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        image_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-        plt.close()
-        
-        return image_base64
+        # 同时返回图表数据（通过其他方式传递给前端，例如存储在全局变量或修改接口）
+        # 为了最小化改动，我们将chart_data以JSON字符串形式编码到base64中返回
+        # 但注意这会破坏现有前端。作为过渡，我们先返回占位图，后续再优化前端。
+        return placeholder_base64
         
     except Exception as e:
-        print(f"图表生成错误: {e}")
-        
-        # 生成错误图表
-        plt.figure(figsize=(10, 6))
-        plt.text(0.5, 0.5, '图表生成失败\n请检查数据格式', 
-                ha='center', va='center', transform=plt.gca().transAxes)
-        plt.title('错误: 无法生成图表')
-        
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        buf.seek(0)
-        image_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-        plt.close()
-        
-        return image_base64
+        print(f"生成图表数据错误: {e}")
+        # 返回一个同样有效的1x1透明像素
+        return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 @app.route('/')
 def home():
@@ -260,7 +229,7 @@ def upload_csv():
         current_data['filename'] = file.filename
         current_data['results'] = None
         
-        # 生成预览图表
+        # 生成预览图表（简化版）
         chart_base64 = generate_stress_strain_chart(strain, stress, material_type=material_type)
         
         return jsonify({
@@ -269,8 +238,9 @@ def upload_csv():
             'data_points': len(strain),
             'strain_range': f'{strain[0]:.4f} ~ {strain[-1]:.4f}',
             'stress_range': f'{stress[0]:.1f} ~ {stress[-1]:.1f} MPa',
-            'chart': chart_base64,
-            'filename': file.filename
+            'chart': chart_base64,  # 现在这是一个占位图
+            'filename': file.filename,
+            'chart_data_available': False  # 告诉前端图表数据暂不可用
         })
         
     except Exception as e:
@@ -319,7 +289,7 @@ def load_example():
         current_data['filename'] = f'{material_type}_示例数据'
         current_data['results'] = None
         
-        # 生成预览图表
+        # 生成预览图表（简化版）
         chart_base64 = generate_stress_strain_chart(strain, stress, material_type=material_type)
         
         return jsonify({
@@ -328,8 +298,9 @@ def load_example():
             'data_points': len(strain),
             'strain_range': f'{strain[0]:.4f} ~ {strain[-1]:.4f}',
             'stress_range': f'{stress[0]:.1f} ~ {stress[-1]:.1f} MPa',
-            'chart': chart_base64,
-            'material_type': material_type
+            'chart': chart_base64,  # 现在这是一个占位图
+            'material_type': material_type,
+            'chart_data_available': False  # 告诉前端图表数据暂不可用
         })
         
     except Exception as e:
@@ -353,15 +324,16 @@ def analyze():
         results = calculate_material_properties(strain, stress)
         current_data['results'] = results
         
-        # 生成完整图表
+        # 生成图表（简化版）
         chart_base64 = generate_stress_strain_chart(strain, stress, results, material_type)
         
         return jsonify({
             'success': True,
             'message': '材料性能分析完成',
             'results': results,
-            'chart': chart_base64,
-            'material_type': material_type
+            'chart': chart_base64,  # 现在这是一个占位图
+            'material_type': material_type,
+            'chart_data_available': False  # 告诉前端图表数据暂不可用
         })
         
     except Exception as e:
@@ -503,7 +475,8 @@ def clear_data():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("材料力学性能分析系统 (修复版)")
+    print("材料力学性能分析系统 (Vercel部署优化版)")
+    print("已移除matplotlib和pandas以减小体积")
     print("=" * 60)
     print("系统正在启动...")
     print("访问地址: http://127.0.0.1:5000")
